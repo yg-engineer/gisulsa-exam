@@ -118,6 +118,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);}
 code{background:var(--sur2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;word-break:break-all;}
 .empty{text-align:center;padding:2rem;color:var(--tx3);font-size:14px;}
 hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
+/* 즐겨찾기 */
+.star{background:transparent;border:none;cursor:pointer;font-size:18px;padding:4px 6px;line-height:1;}
+.star.on{color:#F5A623;}
+.star.off{color:var(--tx3);}
 /* 체크박스 */
 .chkrow{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;}
 .chkrow input[type=checkbox]{width:18px;height:18px;cursor:pointer;accent-color:var(--blue);flex-shrink:0;}
@@ -151,6 +155,9 @@ hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
           <div class="fld" style="text-align:left;min-width:130px;"><label>분야</label><select id="fcatf"><option value="">전체</option></select></div>
           <div class="fld" style="text-align:left;min-width:110px;"><label>회차</label><select id="froundf"><option value="">전체</option></select></div>
           <div class="fld" style="text-align:left;min-width:110px;"><label>교시</label><select id="fsessf"><option value="">전체</option></select></div>
+          <div class="fld" style="text-align:left;min-width:110px;"><label>즐겨찾기</label>
+            <select id="ffav"><option value="0">전체</option><option value="1">⭐ 즐겨찾기만</option></select>
+          </div>
           <div class="fld" style="text-align:left;min-width:110px;"><label>문항수</label>
             <select id="fcnt"><option value="0">전체</option><option value="1">1문제</option><option value="5">5문제</option><option value="10" selected>10문제</option><option value="20">20문제</option></select>
           </div>
@@ -268,7 +275,10 @@ hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
         <label class="chkrow"><input type="checkbox" id="chkall" onchange="toggleAll(this)"> 전체 선택 <span style="font-size:13px;color:var(--tx2);">총 <span id="bcnt">0</span>개</span></label>
-        <button class="btn sm" onclick="loadNotion(true)">🔄 새로고침</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn sm" id="favfilter" onclick="toggleFavFilter()" style="color:var(--tx2);">☆ 즐겨찾기</button>
+          <button class="btn sm" onclick="loadNotion(true)">🔄 새로고침</button>
+        </div>
       </div>
       <div id="selbar" class="selbar" style="display:none;">
         <span class="sellbl" id="sellbl">0개 선택됨</span>
@@ -307,6 +317,13 @@ hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
       <div id="setupmsg" class="msg"></div>
       <hr>
       <div style="font-size:13px;color:var(--tx2);">Notion DB ID<br><code>edf799f6-e918-41ae-928b-d70235c46e6f</code></div>
+      <hr>
+      <div class="ctit" style="font-size:13px;">🔍 데이터 확인</div>
+      <div class="brow">
+        <button class="btn sm" onclick="debugData()">문제 데이터 확인</button>
+        <button class="btn dan sm" onclick="clearCache()">로컬 캐시 초기화</button>
+      </div>
+      <div id="debugout" style="font-size:12px;color:var(--tx2);margin-top:8px;word-break:break-all;"></div>
     </div>
   </div>
 </div>
@@ -318,6 +335,7 @@ const CF = 'https://super-pond-e816.0qkim09.workers.dev';
 const TOTAL = 25 * 60;
 
 let qs = [], hist = [], queue = [], qi = 0;
+let favOnly = false;
 let timer = null, tsec = TOTAL, qstart = null, curQ = null;
 let ntoken = '';
 
@@ -441,15 +459,15 @@ function renderHome() {
   document.getElementById('tcnt').textContent = qs.length;
   const cats = [...new Set(qs.map(q=>q.cat).filter(Boolean))];
   const rounds = [...new Set(qs.map(q=>q.round).filter(Boolean))].sort();
-  function fillSel(id, items, cur) {
-    const s = document.getElementById(id); const c = cur || s.value;
-    s.innerHTML = '<option value="">전체</option>';
-    items.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; if(v===c)o.selected=true; s.appendChild(o); });
+  function fillSel(id, items) {
+    const sel = document.getElementById(id);
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">전체</option>';
+    items.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; if(v===prev)o.selected=true; sel.appendChild(o); });
   }
   fillSel('fcatf', cats);
   fillSel('froundf', rounds);
-  const sess = ['1교시','2교시','3교시','4교시'].filter(s=>qs.some(q=>q.session===s));
-  fillSel('fsessf', sess);
+  fillSel('fsessf', ['1교시','2교시','3교시','4교시']);
 }
 
 // 시험
@@ -462,6 +480,7 @@ function startExam() {
   if (cat) pool = pool.filter(q=>q.cat===cat);
   if (round) pool = pool.filter(q=>q.round===round);
   if (sess) pool = pool.filter(q=>q.session===sess);
+  if (document.getElementById('ffav').value==='1') pool = pool.filter(q=>q.fav);
   if (!pool.length) { alert('조건에 맞는 문제가 없습니다.'); return; }
   pool = pool.sort(()=>Math.random()-.5);
   const cnt = parseInt(document.getElementById('fcnt').value);
@@ -647,6 +666,14 @@ async function addQ(){
   renderBank(); renderHome();
 }
 
+function toggleFavFilter(){
+  favOnly = !favOnly;
+  const btn = document.getElementById('favfilter');
+  btn.textContent = favOnly ? '⭐ 즐겨찾기' : '☆ 즐겨찾기';
+  btn.style.color = favOnly ? '#F5A623' : 'var(--tx2)';
+  renderBank();
+}
+
 function toggleAll(chk){
   document.querySelectorAll('.qchk').forEach(c=>c.checked=chk.checked);
   updSelBar();
@@ -683,13 +710,14 @@ async function delSelected(){
 function renderBank(){
   document.getElementById('bcnt').textContent=qs.length;
   const list=document.getElementById('qlist');
-  if(!qs.length){ list.innerHTML='<div class="empty">등록된 문제가 없습니다.</div>'; return; }
-  list.innerHTML=qs.map((q,i)=>`
+  const filtered = favOnly ? qs.map((q,i)=>({q,i})).filter(({q})=>q.fav) : qs.map((q,i)=>({q,i}));
+  if(!filtered.length){ list.innerHTML='<div class="empty">'+(favOnly?'즐겨찾기한 문제가 없습니다.':'등록된 문제가 없습니다.')+'</div>'; return; }
+  list.innerHTML=filtered.map(({q,i})=>`
     <div class="qi" id="qi-${i}">
       <input type="checkbox" class="qchk" data-idx="${i}" onchange="updSelBar()" style="width:18px;height:18px;cursor:pointer;accent-color:var(--blue);flex-shrink:0;margin-top:2px;">
       <div class="qbody">
         <div class="qprev">${q.q.length>90?q.q.slice(0,90)+'...':q.q}</div>
-        <div class="qmeta">${q.cat||'분야없음'}${q.round?' · '+q.round:''}${q.session?' · '+q.session:''}${q.a?' · 모범답안있음':''}</div>
+        <div class="qmeta">${q.fav?'⭐ ':''}${q.cat||'분야없음'}${q.round?' · '+q.round:''}${q.session?' · '+q.session:''}${q.a?' · 모범답안있음':''}</div>
         <div class="eform" id="ef-${i}">
           <div class="fld"><label>분야</label><select id="eq-cat-${i}"><option value="">선택안함</option><option ${q.cat==='공조설비'?'selected':''}>공조설비</option><option ${q.cat==='냉동설비'?'selected':''}>냉동설비</option><option ${q.cat==='배관'?'selected':''}>배관</option><option ${q.cat==='위생 및 배관'?'selected':''}>위생 및 배관</option><option ${q.cat==='소방설비'?'selected':''}>소방설비</option><option ${q.cat==='법령'?'selected':''}>법령</option><option ${q.cat==='열역학'?'selected':''}>열역학</option><option ${q.cat==='기초역학'?'selected':''}>기초역학</option><option ${q.cat==='난방설비'?'selected':''}>난방설비</option><option ${q.cat==='건축환경'?'selected':''}>건축환경</option><option ${q.cat==='건축일반'?'selected':''}>건축일반</option><option ${q.cat==='신재생설비'?'selected':''}>신재생설비</option><option ${q.cat==='기타'?'selected':''}>기타</option></select></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
@@ -702,6 +730,7 @@ function renderBank(){
         </div>
       </div>
       <div class="qacts">
+        <button class="star ${q.fav?'on':'off'}" onclick="toggleFav(${i})" title="즐겨찾기">${q.fav?'⭐':'☆'}</button>
         <button class="ibtn" id="eb-${i}" onclick="openEdit(${i})">수정</button>
         <button class="ibtn del" onclick="delQ(${i})">✕</button>
       </div>
@@ -717,6 +746,16 @@ async function saveEdit(i){
   if(ntoken&&qs[i].notionId)await updateNotion(qs[i].notionId,qs[i]);
   renderBank(); renderHome();
 }
+async function toggleFav(i){
+  qs[i].fav = !qs[i].fav;
+  lsSet('qs',qs);
+  if(ntoken && qs[i].notionId){
+    // Notion에 복습필요 체크박스로 저장
+    await napi('PATCH','/pages/'+qs[i].notionId,{ properties:{ '복습필요':{ checkbox: qs[i].fav } } });
+  }
+  renderBank(); renderHome();
+}
+
 async function delQ(i){
   if(!confirm('삭제할까요?'))return;
   const q=qs[i]; qs.splice(i,1); lsSet('qs',qs);
@@ -772,6 +811,22 @@ function disconnectNotion(){
   ntoken=''; lsSet('ntoken','');
   document.getElementById('ntoken').value='';
   setSS('','미연결'); showMsg('setupmsg','연결 해제됨.',true);
+}
+
+function debugData(){
+  const el = document.getElementById('debugout');
+  if(!qs.length){ el.textContent='문제 없음'; return; }
+  const sample = qs.slice(0,3).map(q=>'cat:'+q.cat+' round:'+q.round+' q:'+q.q.slice(0,20)).join(' / ');
+  const cats = [...new Set(qs.map(q=>q.cat).filter(Boolean))];
+  const rounds = [...new Set(qs.map(q=>q.round).filter(Boolean))];
+  el.innerHTML = '총 '+qs.length+'개 | 분야: '+(cats.join(',')||'없음')+' | 회차: '+(rounds.join(',')||'없음')+'<br>샘플: '+sample;
+}
+
+function clearCache(){
+  if(!confirm('로컬 캐시를 초기화할까요? Notion 데이터는 유지됩니다.'))return;
+  lsSet('qs',[]); lsSet('hist',[]); qs=[]; hist=[];
+  renderHome(); renderBank();
+  showMsg('setupmsg','로컬 캐시 초기화됨. 새로고침 버튼을 눌러 Notion에서 다시 불러오세요.',true);
 }
 
 function showMsg(id,txt,ok){
