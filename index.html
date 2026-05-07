@@ -352,6 +352,7 @@ hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
 
 <script>
 const NOTION_DB = 'edf799f6-e918-41ae-928b-d70235c46e6f';
+const REVIEW_DB = 'f661c5b42d8b4ec58dcc3eea304da7b6';
 const NOTION_VER = '2022-06-28';
 const CF = 'https://super-pond-e816.0qkim09.workers.dev';
 const TOTAL = 25 * 60;
@@ -380,6 +381,35 @@ async function napi(method, path, body) {
     if (!res.ok) { console.error('Worker error:', res.status); return null; }
     return await res.json();
   } catch(e) { console.error('Worker failed:', e.message); return null; }
+}
+
+// 복습기록 Notion에 저장
+async function saveReview(entry) {
+  if (!ntoken) return;
+  try {
+    const gl = { good: '잘씀', ok: '보통', bad: '복습필요', skip: null };
+    const grade = gl[entry.grade];
+    const body = {
+      parent: { database_id: REVIEW_DB },
+      properties: {
+        'Name': { title: [{ text: { content: entry.q.slice(0, 80) } }] },
+        '자기평가': grade ? { select: { name: grade } } : undefined,
+        '소요시간(초)': { number: entry.elapsed || 0 },
+        '메모': { rich_text: [{ text: { content: entry.ans || '' } }] }
+      }
+    };
+    // 날짜 추가
+    body.properties['날짜'] = {
+      date: { start: new Date().toISOString().split('T')[0] }
+    };
+    // undefined 제거
+    Object.keys(body.properties).forEach(k => {
+      if (body.properties[k] === undefined) delete body.properties[k];
+    });
+    await napi('POST', '/pages', body);
+  } catch(e) {
+    console.warn('복습기록 저장 실패:', e.message);
+  }
 }
 
 // Notion 페이지 → 문제 변환
@@ -625,15 +655,20 @@ function submitAns() {
 
 function evalSelf(g) {
   const el=curQ._el||elapsed();
-  hist.unshift({ q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:g, elapsed:el, date:new Date().toLocaleDateString('ko-KR') });
+  const entry = { q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:g, elapsed:el, ans:document.getElementById('eans').value.trim(), date:new Date().toLocaleDateString('ko-KR') };
+  hist.unshift(entry);
   if(hist.length>300)hist.pop(); lsSet('hist',hist);
   document.getElementById('eseval').style.display='none';
+  saveReview(entry);
 }
 
 function skipQ() {
   clearInterval(timer);
-  hist.unshift({ q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:'skip', elapsed:elapsed(), date:new Date().toLocaleDateString('ko-KR') });
-  lsSet('hist',hist); qi++;
+  const entry = { q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:'skip', elapsed:elapsed(), ans:'', date:new Date().toLocaleDateString('ko-KR') };
+  hist.unshift(entry);
+  lsSet('hist',hist);
+  saveReview(entry);
+  qi++;
   if(qi>=queue.length){ alert('완료!'); endExam(); return; }
   showQ();
 }
