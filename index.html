@@ -217,6 +217,12 @@ hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
             <button class="evbtn" onclick="evalSelf('ok')">보통</button>
             <button class="evbtn b" onclick="evalSelf('bad')">복습 필요</button>
           </div>
+          <label style="margin-top:10px;display:block;">문제 난이도</label>
+          <div class="evbtns">
+            <button class="evbtn b" id="dlv-h" onclick="setDiff('상')">상</button>
+            <button class="evbtn" id="dlv-m" onclick="setDiff('중')">중</button>
+            <button class="evbtn g" id="dlv-l" onclick="setDiff('하')">하</button>
+          </div>
         </div>
       </div>
       <div id="enextrow" style="display:none;margin-top:8px;">
@@ -393,20 +399,21 @@ async function saveReview(entry) {
       parent: { database_id: REVIEW_DB },
       properties: {
         'Name': { title: [{ text: { content: entry.q.slice(0, 80) } }] },
-        '자기평가': grade ? { select: { name: grade } } : undefined,
         '소요시간(초)': { number: entry.elapsed || 0 },
-        '메모': { rich_text: [{ text: { content: entry.ans || '' } }] }
+        '메모': { rich_text: [{ text: { content: entry.ans || '' } }] },
+        '날짜': { date: { start: new Date().toISOString().split('T')[0] } }
       }
     };
-    // 날짜 추가
-    body.properties['날짜'] = {
-      date: { start: new Date().toISOString().split('T')[0] }
-    };
-    // undefined 제거
-    Object.keys(body.properties).forEach(k => {
-      if (body.properties[k] === undefined) delete body.properties[k];
-    });
+    if (grade) body.properties['자기평가'] = { select: { name: grade } };
+    if (entry.diff) body.properties['난이도'] = { select: { name: entry.diff } };
     await napi('POST', '/pages', body);
+
+    // 자기평가가 '복습필요'이면 문제은행의 복습필요 체크박스 자동 체크
+    if (entry.grade === 'bad' && entry.notionId) {
+      await napi('PATCH', '/pages/' + entry.notionId, {
+        properties: { '복습필요': { checkbox: true } }
+      });
+    }
   } catch(e) {
     console.warn('복습기록 저장 실패:', e.message);
   }
@@ -618,6 +625,7 @@ function showQ() {
   document.getElementById('emans').style.display='none';
   document.getElementById('esubbtn').style.display='inline-block';
   document.getElementById('eseval').style.display='none';
+  curDiff = null;
   document.getElementById('enextrow').style.display='none';
   startTimer();
 }
@@ -653,9 +661,20 @@ function submitAns() {
   document.getElementById('enextrow').style.display='block';
 }
 
+let curDiff = null;
+function setDiff(d) {
+  curDiff = d;
+  ['상','중','하'].forEach(v => {
+    const id = {'상':'dlv-h','중':'dlv-m','하':'dlv-l'}[v];
+    const el = document.getElementById(id);
+    if (el) el.style.fontWeight = v===d ? '600' : '';
+    if (el) el.style.outline = v===d ? '2px solid currentColor' : '';
+  });
+}
+
 function evalSelf(g) {
   const el=curQ._el||elapsed();
-  const entry = { q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:g, elapsed:el, ans:document.getElementById('eans').value.trim(), date:new Date().toLocaleDateString('ko-KR') };
+  const entry = { q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:g, diff:curDiff, elapsed:el, ans:document.getElementById('eans').value.trim(), date:new Date().toLocaleDateString('ko-KR'), notionId:curQ.notionId||null };
   hist.unshift(entry);
   if(hist.length>300)hist.pop(); lsSet('hist',hist);
   document.getElementById('eseval').style.display='none';
