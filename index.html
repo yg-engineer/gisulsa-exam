@@ -205,6 +205,10 @@ hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
         <div class="qtxt" id="eqtxt"></div>
         <textarea class="ans" id="eans" placeholder="답안을 작성하세요...&#10;정의 → 원리 → 분류 → 비교 → 대책 순으로 서술"></textarea>
         <div class="mans" id="emans"></div>
+        <div id="mans-input-wrap" style="display:none;margin-top:12px;">
+          <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px;">모범답안 직접 작성 (Notion에 저장됩니다)</label>
+          <textarea id="emans-input" class="ans" style="min-height:120px;" placeholder="모범답안을 작성하세요..."></textarea>
+        </div>
         <div class="brow">
           <button class="btn pri" id="esubbtn" onclick="submitAns()">제출 및 모범답안 확인</button>
           <button class="btn" onclick="skipQ()">건너뛰기</button>
@@ -390,7 +394,7 @@ async function napi(method, path, body) {
 }
 
 // 복습기록 Notion에 저장
-async function saveReview(entry) {
+async function saveReview(entry, mansText) {
   if (!ntoken) return;
   try {
     const gl = { good: '잘씀', ok: '보통', bad: '복습필요', skip: null };
@@ -408,11 +412,14 @@ async function saveReview(entry) {
     if (entry.diff) body.properties['난이도'] = { select: { name: entry.diff } };
     await napi('POST', '/pages', body);
 
-    // 자기평가가 '복습필요'이면 문제은행의 복습필요 체크박스 자동 체크
-    if (entry.grade === 'bad' && entry.notionId) {
-      await napi('PATCH', '/pages/' + entry.notionId, {
-        properties: { '복습필요': { checkbox: true } }
-      });
+    // 문제은행 업데이트 (복습필요 체크 + 모범답안 저장)
+    if (entry.notionId) {
+      const patch = { properties: {} };
+      if (entry.grade === 'bad') patch.properties['복습필요'] = { checkbox: true };
+      if (mansText) patch.properties['모범답안'] = { rich_text: [{ text: { content: mansText } }] };
+      if (Object.keys(patch.properties).length > 0) {
+        await napi('PATCH', '/pages/' + entry.notionId, patch);
+      }
     }
   } catch(e) {
     console.warn('복습기록 저장 실패:', e.message);
@@ -623,6 +630,8 @@ function showQ() {
   document.getElementById('eqtxt').textContent = curQ.q;
   document.getElementById('eans').value = '';
   document.getElementById('emans').style.display='none';
+  document.getElementById('mans-input-wrap').style.display='none';
+  document.getElementById('emans-input').value='';
   document.getElementById('esubbtn').style.display='inline-block';
   document.getElementById('eseval').style.display='none';
   curDiff = null;
@@ -651,7 +660,13 @@ function submitAns() {
   clearInterval(timer);
   const el=elapsed(); curQ._el=el;
   document.getElementById('esubbtn').style.display='none';
-  if (curQ.a) { document.getElementById('emans').textContent='모범답안:\n'+curQ.a; document.getElementById('emans').style.display='block'; }
+  if (curQ.a) {
+    document.getElementById('emans').textContent='모범답안:\n'+curQ.a;
+    document.getElementById('emans').style.display='block';
+  }
+  // 모범답안 작성창 표시 (기존 모범답안 없을 때만 또는 항상)
+  document.getElementById('mans-input-wrap').style.display='block';
+  document.getElementById('emans-input').value = curQ.a || '';
   const ov=el>=TOTAL;
   const chip=document.createElement('span');
   chip.className='chip'+(ov?' ov':'');
@@ -674,19 +689,27 @@ function setDiff(d) {
 
 function evalSelf(g) {
   const el=curQ._el||elapsed();
+  const mansText = document.getElementById('emans-input').value.trim();
   const entry = { q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:g, diff:curDiff, elapsed:el, ans:document.getElementById('eans').value.trim(), date:new Date().toLocaleDateString('ko-KR'), notionId:curQ.notionId||null };
   hist.unshift(entry);
   if(hist.length>300)hist.pop(); lsSet('hist',hist);
   document.getElementById('eseval').style.display='none';
-  saveReview(entry);
+  // 로컬 문제은행 모범답안 업데이트 (notionId 유무 상관없이)
+  if (mansText) {
+    const qIdx = qs.findIndex(q =>
+      q.notionId === curQ.notionId ||
+      (q.q === curQ.q && q.round === curQ.round && q.session === curQ.session)
+    );
+    if (qIdx >= 0) {
+      qs[qIdx].a = mansText;
+      lsSet('qs', qs);
+    }
+  }
+  saveReview(entry, mansText);
 }
 
 function skipQ() {
   clearInterval(timer);
-  const entry = { q:curQ.q, cat:curQ.cat, round:curQ.round||'', session:curQ.session||'', grade:'skip', elapsed:elapsed(), ans:'', date:new Date().toLocaleDateString('ko-KR') };
-  hist.unshift(entry);
-  lsSet('hist',hist);
-  saveReview(entry);
   qi++;
   if(qi>=queue.length){ alert('완료!'); endExam(); return; }
   showQ();
