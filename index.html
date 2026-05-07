@@ -387,7 +387,32 @@ function n2q(page) {
   const p = page.properties;
   const gt = (prop) => prop?.rich_text?.[0]?.plain_text || prop?.title?.[0]?.plain_text || '';
   const gs = (prop) => prop?.select?.name || '';
-  return { id: page.id, notionId: page.id, cat: gs(p['분야']), round: gt(p['회차']), session: gs(p['교시']), q: gt(p['문제']), a: gt(p['모범답안']), level: gs(p['난이도']) };
+
+  // 교시 정규화: '4' → '4교시', '4교시' → '4교시'
+  function normSession(v) {
+    if (!v) return '';
+    if (v.endsWith('교시')) return v;
+    if (['1','2','3','4'].includes(v.trim())) return v.trim() + '교시';
+    return v;
+  }
+
+  // 회차 정규화: '123' → '123회', '123회' → '123회'
+  function normRound(v) {
+    if (!v) return '';
+    if (v.endsWith('회')) return v;
+    if (/^\d+$/.test(v.trim())) return v.trim() + '회';
+    return v;
+  }
+
+  return {
+    id: page.id, notionId: page.id,
+    cat: gs(p['분야']),
+    round: normRound(gt(p['회차'])),
+    session: normSession(gs(p['교시'])),
+    q: gt(p['문제']),
+    a: gt(p['모범답안']),
+    level: gs(p['난이도'])
+  };
 }
 
 // Notion에서 문제 불러오기
