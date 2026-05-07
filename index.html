@@ -118,6 +118,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);}
 code{background:var(--sur2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;word-break:break-all;}
 .empty{text-align:center;padding:2rem;color:var(--tx3);font-size:14px;}
 hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
+/* 회차 범위 선택 */
+.range-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.range-sel{width:90px;padding:7px 10px;border-radius:var(--r);border:.5px solid var(--bd2);background:var(--sur);color:var(--tx);font-size:14px;font-family:inherit;}
+.range-lbl{font-size:13px;color:var(--tx2);}
+/* 필터 태그 */
+.ftag{display:inline-block;padding:5px 12px;border-radius:20px;border:.5px solid var(--bd2);font-size:13px;cursor:pointer;background:transparent;color:var(--tx2);font-family:inherit;transition:all .15s;}
+.ftag.on{background:var(--blue);color:#fff;border-color:var(--blue);}
 /* 즐겨찾기 */
 .star{background:transparent;border:none;cursor:pointer;font-size:18px;padding:4px 6px;line-height:1;}
 .star.on{color:#F5A623;}
@@ -151,15 +158,30 @@ hr{border:none;border-top:.5px solid var(--bd);margin:16px 0;}
         <div style="font-size:13px;color:var(--tx2);margin-bottom:8px;">등록된 문제</div>
         <div style="font-size:48px;font-weight:500;" id="tcnt">0</div>
         <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;">문제</div>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:20px;">
-          <div class="fld" style="text-align:left;min-width:130px;"><label>분야</label><select id="fcatf"><option value="">전체</option></select></div>
-          <div class="fld" style="text-align:left;min-width:110px;"><label>회차</label><select id="froundf"><option value="">전체</option></select></div>
-          <div class="fld" style="text-align:left;min-width:110px;"><label>교시</label><select id="fsessf"><option value="">전체</option></select></div>
-          <div class="fld" style="text-align:left;min-width:110px;"><label>즐겨찾기</label>
-            <select id="ffav"><option value="0">전체</option><option value="1">⭐ 즐겨찾기만</option></select>
+        <div style="margin-bottom:20px;text-align:left;">
+          <div class="fld">
+            <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:6px;">분야 <span id="fcatf-lbl" style="color:var(--blue);font-size:12px;"></span></label>
+            <div id="fcatf-wrap" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
           </div>
-          <div class="fld" style="text-align:left;min-width:110px;"><label>문항수</label>
-            <select id="fcnt"><option value="0">전체</option><option value="1">1문제</option><option value="5">5문제</option><option value="10" selected>10문제</option><option value="20">20문제</option></select>
+          <div class="fld">
+            <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:6px;">회차 <span id="froundf-lbl" style="color:var(--blue);font-size:12px;"></span></label>
+            <div class="range-wrap">
+              <select id="fround-from" class="range-sel" onchange="updRoundLbl()"><option value="">처음부터</option></select>
+              <span class="range-lbl">~</span>
+              <select id="fround-to" class="range-sel" onchange="updRoundLbl()"><option value="">끝까지</option></select>
+            </div>
+          </div>
+          <div class="fld">
+            <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:6px;">교시 <span id="fsessf-lbl" style="color:var(--blue);font-size:12px;"></span></label>
+            <div id="fsessf-wrap" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+            <div class="fld" style="min-width:130px;"><label>즐겨찾기</label>
+              <select id="ffav"><option value="0">전체</option><option value="1">⭐ 즐겨찾기만</option></select>
+            </div>
+            <div class="fld" style="min-width:110px;"><label>문항수</label>
+              <select id="fcnt"><option value="0">전체</option><option value="1">1문제</option><option value="5">5문제</option><option value="10" selected>10문제</option><option value="20">20문제</option></select>
+            </div>
           </div>
         </div>
         <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;">문제당 25분 타이머 자동 시작</div>
@@ -336,6 +358,7 @@ const TOTAL = 25 * 60;
 
 let qs = [], hist = [], queue = [], qi = 0;
 let favOnly = false;
+let filterState = { cats: [], sessions: [] };
 let timer = null, tsec = TOTAL, qstart = null, curQ = null;
 let ntoken = '';
 
@@ -459,27 +482,62 @@ function renderHome() {
   document.getElementById('tcnt').textContent = qs.length;
   const cats = [...new Set(qs.map(q=>q.cat).filter(Boolean))];
   const rounds = [...new Set(qs.map(q=>q.round).filter(Boolean))].sort();
-  function fillSel(id, items) {
-    const sel = document.getElementById(id);
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">전체</option>';
-    items.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; if(v===prev)o.selected=true; sel.appendChild(o); });
+  function fillTags(wrapId, lblId, items, stateKey) {
+    const wrap = document.getElementById(wrapId);
+    const lbl = document.getElementById(lblId);
+    const prev = filterState[stateKey] || [];
+    wrap.innerHTML = '';
+    items.forEach(v => {
+      const btn = document.createElement('button');
+      btn.className = 'ftag' + (prev.includes(v) ? ' on' : '');
+      btn.textContent = v;
+      btn.onclick = () => {
+        const sel = filterState[stateKey];
+        const idx = sel.indexOf(v);
+        if (idx === -1) sel.push(v); else sel.splice(idx, 1);
+        btn.className = 'ftag' + (sel.includes(v) ? ' on' : '');
+        const cnt = filterState[stateKey].length;
+        lbl.textContent = cnt > 0 ? cnt + '개 선택' : '';
+      };
+      wrap.appendChild(btn);
+    });
+    const cnt = prev.length;
+    lbl.textContent = cnt > 0 ? cnt + '개 선택' : '';
   }
-  fillSel('fcatf', cats);
-  fillSel('froundf', rounds);
-  fillSel('fsessf', ['1교시','2교시','3교시','4교시']);
+  fillTags('fcatf-wrap', 'fcatf-lbl', cats, 'cats');
+  // 회차 범위 선택 채우기
+  const fromSel = document.getElementById('fround-from');
+  const toSel = document.getElementById('fround-to');
+  const prevFrom = fromSel.value;
+  const prevTo = toSel.value;
+  fromSel.innerHTML = '<option value="">처음부터</option>';
+  toSel.innerHTML = '<option value="">끝까지</option>';
+  rounds.forEach(r => {
+    const o1 = document.createElement('option'); o1.value=r; o1.textContent=r; if(r===prevFrom)o1.selected=true; fromSel.appendChild(o1);
+    const o2 = document.createElement('option'); o2.value=r; o2.textContent=r; if(r===prevTo)o2.selected=true; toSel.appendChild(o2);
+  });
+  updRoundLbl();
+  fillTags('fsessf-wrap', 'fsessf-lbl', ['1교시','2교시','3교시','4교시'], 'sessions');
 }
 
 // 시험
 function startExam() {
   if (!qs.length) { alert('문제를 먼저 추가해주세요!'); return; }
   let pool = [...qs];
-  const cat = document.getElementById('fcatf').value;
-  const round = document.getElementById('froundf').value;
-  const sess = document.getElementById('fsessf').value;
-  if (cat) pool = pool.filter(q=>q.cat===cat);
-  if (round) pool = pool.filter(q=>q.round===round);
-  if (sess) pool = pool.filter(q=>q.session===sess);
+
+  if (filterState.cats.length) pool = pool.filter(q=>filterState.cats.includes(q.cat));
+  const rFrom = document.getElementById('fround-from').value;
+  const rTo = document.getElementById('fround-to').value;
+  if (rFrom || rTo) {
+    pool = pool.filter(q => {
+      const rn = parseInt(q.round);
+      if (isNaN(rn)) return false;
+      if (rFrom && rn < parseInt(rFrom)) return false;
+      if (rTo && rn > parseInt(rTo)) return false;
+      return true;
+    });
+  }
+  if (filterState.sessions.length) pool = pool.filter(q=>filterState.sessions.includes(q.session));
   if (document.getElementById('ffav').value==='1') pool = pool.filter(q=>q.fav);
   if (!pool.length) { alert('조건에 맞는 문제가 없습니다.'); return; }
   pool = pool.sort(()=>Math.random()-.5);
@@ -664,6 +722,14 @@ async function addQ(){
     else showMsg('addmsg','⚠️ 로컬 저장됨. Notion 저장 실패.',false);
   } else showMsg('addmsg','로컬 저장됨. Notion 미연결.',true);
   renderBank(); renderHome();
+}
+
+function updRoundLbl(){
+  const from = document.getElementById('fround-from').value;
+  const to = document.getElementById('fround-to').value;
+  const lbl = document.getElementById('froundf-lbl');
+  if (from || to) lbl.textContent = (from||'처음')+'~'+(to||'끝');
+  else lbl.textContent = '';
 }
 
 function toggleFavFilter(){
