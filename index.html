@@ -413,13 +413,25 @@ async function saveReview(entry, mansText) {
     await napi('POST', '/pages', body);
 
     // 문제은행 업데이트 (복습필요 체크 + 모범답안 저장)
-    if (entry.notionId) {
+    // notionId가 없으면 qs 배열에서 찾아서 사용
+    let nid = entry.notionId;
+    if (!nid) {
+      const found = qs.find(q =>
+        q.q === entry.q && q.round === entry.round && q.session === entry.session
+      );
+      if (found) nid = found.notionId;
+    }
+    if (nid) {
       const patch = { properties: {} };
       if (entry.grade === 'bad') patch.properties['복습필요'] = { checkbox: true };
       if (mansText) patch.properties['모범답안'] = { rich_text: [{ text: { content: mansText } }] };
       if (Object.keys(patch.properties).length > 0) {
-        await napi('PATCH', '/pages/' + entry.notionId, patch);
+        const r = await napi('PATCH', '/pages/' + nid, patch);
+        if (r) console.log('Notion 문제은행 업데이트 완료');
+        else console.warn('Notion 문제은행 업데이트 실패 - nid:', nid);
       }
+    } else {
+      console.warn('notionId 없음 - Notion 동기화 불가, entry:', entry.q.slice(0,30));
     }
   } catch(e) {
     console.warn('복습기록 저장 실패:', e.message);
