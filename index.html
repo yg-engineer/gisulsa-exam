@@ -935,7 +935,6 @@ async function delSelected(){
 }
 
 function renderBank(){
-  document.getElementById('bcnt').textContent=filtered.length+(keyword||favOnly?'/'+qs.length:'');
   const list=document.getElementById('qlist');
   const keyword = (document.getElementById('qsearch')?.value||'').trim().toLowerCase();
   const filtered = qs.map((q,i)=>({q,i}))
@@ -947,6 +946,7 @@ function renderBank(){
         (q.a||'').toLowerCase().includes(keyword)
       : true
     );
+  document.getElementById('bcnt').textContent=filtered.length+(keyword||favOnly?'/'+qs.length:'');
   if(!filtered.length){ list.innerHTML='<div class="empty">'+(favOnly?'즐겨찾기한 문제가 없습니다.':'등록된 문제가 없습니다.')+'</div>'; return; }
   list.innerHTML=filtered.map(({q,i})=>`
     <div class="qi" id="qi-${i}">
